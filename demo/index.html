@@ -969,43 +969,234 @@
         </div>
     </div>
   </div>
+
+  <div id="control-panel" style="position: absolute; top: 80px; left: 10px; z-index: 10000; background: rgba(0,0,0,0.5); padding: 10px; color: white;">
+    <label for="distanceSlider">📏視線距離: <span id="distanceValue">1000</span></label><br>
+    <input type="range" id="distanceSlider" min="10" max="2000" value="1000" step="10" style="width: 200px;">
+  </div>
+  
 </body>
 
-<script>
-   document.body.onload = function () {
-    if (window.location.search) {
-      const tokens = window.location.search.substring(1).split("&");
-      for (token of tokens) {
-        const component = token.split("=");
-        const varName = component[0];
-        if (varName == "art") {
-          currentAlphaRemovalThreshold = component[1];
-          document.getElementById('alphaRemovalThresholdView').value = currentAlphaRemovalThreshold;
-        } else if (varName == "cu") {
-          currentCameraUpArray = component[1];
-          document.getElementById('cameraUp').value = currentCameraUpArray;
-        } else if (varName == "cp") {
-          currentCameraPositionArray = component[1];
-          document.getElementById('cameraPosition').value = currentCameraPositionArray;
-        } else if (varName == "cla") {
-          currentCameraLookAtArray = component[1];
-          document.getElementById('cameraLookAt').value = currentCameraLookAtArray;
-        } else if (varName == "aa") {
-          currentAntialiased = component[1] === 'true' ? true : false;
-          document.getElementById('antialiased').checked = currentAntialiased;
-        } else if (varName == "2d") {
-          current2DScene = component[1] === 'true' ? true : false;
-          document.getElementById('2dScene').checked = current2DScene;
-        }  else if (varName == "sh") {
-          currentSphericalHarmonicsDegree = component[1];
-          document.getElementById('viewSphericalHarmonicsDegree').value = currentSphericalHarmonicsDegree;
-        }
+
+
+<style>
+  body {
+    background-color: #CCD5DE;
+    height: 100vh;
+    margin: 0px;
+  }
+
+  
+
+  /* MPRオーバーレイ画像のスタイル */
+  #mprOverlay {
+    position: fixed;  /* absoluteからfixedに変更 */
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 9999;  /* z-indexを上げる */
+    opacity: 0.7;
+    mix-blend-mode: screen;
+    object-fit: contain;  /* 画像のアスペクト比を保持 */
+  }
+</style>
+
+<script type="module">
+import * as THREE from 'three';
+
+let viewDistance = 1000;
+const slider = document.getElementById("distanceSlider");
+const valueLabel = document.getElementById("distanceValue");
+
+slider.addEventListener("input", () => {
+  viewDistance = parseFloat(slider.value);
+  valueLabel.textContent = viewDistance;
+});
+
+const camInfo = document.createElement('div');
+camInfo.style.position = 'absolute';
+camInfo.style.top = '10px';
+camInfo.style.left = '10px';
+camInfo.style.color = 'white';
+camInfo.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
+camInfo.style.padding = '6px 10px';
+camInfo.style.fontFamily = 'monospace';
+camInfo.style.fontSize = '12px';
+camInfo.style.zIndex = '9999';
+document.body.appendChild(camInfo);
+
+// MPRオーバーレイ画像要素の作成
+const mprOverlay = document.createElement('img');
+mprOverlay.id = 'mprOverlay';
+mprOverlay.style.display = 'none';  // 初期状態は非表示
+document.body.appendChild(mprOverlay);
+
+// WebSocket接続を管理
+let ws = null;
+let isConnected = false;
+let lastMPRUpdate = 0;  // 最後のMPR更新時刻
+const MPR_UPDATE_INTERVAL = 100;  // MPR更新間隔（ミリ秒）
+
+// MPRスライス表示用の変数
+let mprPlane = null;
+let mprTexture = null;
+let mprMaterial = null;
+
+// WebSocket接続を確立
+function connectWebSocket() {
+  if (ws) {
+    ws.close();
+  }
+
+  console.log('WebSocket接続を試行中...');
+  ws = new WebSocket('ws://localhost:8000/ws');
+  
+  ws.onopen = () => {
+    console.log('WebSocket接続が確立されました');
+    isConnected = true;
+    // 初期MPRスライスの取得
+    updateMPRSlice();
+  };
+  
+  ws.onclose = () => {
+    console.log('WebSocket接続が切断されました');
+    isConnected = false;
+    // 再接続を試みる
+    setTimeout(connectWebSocket, 1000);
+  };
+  
+  ws.onerror = (error) => {
+    console.error('WebSocketエラー:', error);
+    isConnected = false;
+  };
+}
+
+// MPRスライスの更新関数
+async function updateMPRSlice() {
+  try {
+    // メタ情報の取得
+    const metaResponse = await fetch('http://localhost:8000/mpr-meta.json');
+    if (!metaResponse.ok) {
+      console.error('MPRメタ情報の取得に失敗:', metaResponse.status);
+      return;
+    }
+    const meta = await metaResponse.json();
+
+    // テクスチャの更新
+    const textureResponse = await fetch('http://localhost:8000/mpr-slice.png');
+    if (!textureResponse.ok) {
+      console.error('MPRスライス画像の取得に失敗:', textureResponse.status);
+      return;
+    }
+    const blob = await textureResponse.blob();
+    const imageUrl = URL.createObjectURL(blob);
+
+    // 既存のMPRプレーンを削除
+    if (mprPlane) {
+      scene.remove(mprPlane);
+      if (mprTexture) {
+        mprTexture.dispose();
+      }
+      if (mprMaterial) {
+        mprMaterial.dispose();
       }
     }
-    if (history.state === "ViewSplat") {
-      history.go(-1);
-    }
-  };
-</script>
 
-</html>
+    // テクスチャの作成
+    mprTexture = new THREE.TextureLoader().load(imageUrl, () => {
+      // テクスチャ読み込み完了時の処理
+      const width_mm = meta.output_size[0] * meta.pixel_spacing[0];
+      const height_mm = meta.output_size[1] * meta.pixel_spacing[1];
+
+      // ジオメトリの作成
+      const geometry = new THREE.PlaneGeometry(width_mm, height_mm);
+
+      // マテリアルの作成
+      mprMaterial = new THREE.MeshBasicMaterial({
+        map: mprTexture,
+        transparent: true,
+        side: THREE.DoubleSide
+      });
+
+      // メッシュの作成
+      mprPlane = new THREE.Mesh(geometry, mprMaterial);
+
+      // 位置と向きの設定
+      mprPlane.position.set(...meta.center);
+
+      // 法線ベクトルの計算
+      const uVec = new THREE.Vector3(...meta.u);
+      const vVec = new THREE.Vector3(...meta.v);
+      const normal = new THREE.Vector3().crossVectors(uVec, vVec).normalize();
+
+      // プレーンの向きを設定
+      mprPlane.lookAt(
+        meta.center[0] + normal.x,
+        meta.center[1] + normal.y,
+        meta.center[2] + normal.z
+      );
+
+      // u軸の向きを補正
+      const currentRight = new THREE.Vector3().crossVectors(vVec, normal).normalize();
+      const angle = currentRight.angleTo(uVec);
+      mprPlane.rotateOnAxis(normal, angle);
+
+      // シーンに追加
+      scene.add(mprPlane);
+    });
+  } catch (error) {
+    console.error('MPRスライスの更新中にエラー:', error);
+  }
+}
+
+// カメラ情報を送信
+function sendCameraInfo(camera) {
+  if (!isConnected) {
+    console.log('WebSocket未接続のため、カメラ情報を送信できません');
+    return;
+  }
+  const position = camera.position;
+  const target = new THREE.Vector3();
+  camera.getWorldDirection(target);
+  target.multiplyScalar(viewDistance).add(position); // 10単位先の点をtargetとする
+
+  const cameraInfo = {
+    eye: [camera.position.x, camera.position.y, camera.position.z],
+    target: [target.x, target.y, target.z],
+    up: [camera.up.x, camera.up.y, camera.up.z]
+  };
+
+  try {
+    ws.send(JSON.stringify(cameraInfo));
+    console.log('カメラ情報を送信:', cameraInfo);
+  } catch (error) {
+    console.error('カメラ情報の送信に失敗:', error);
+  }
+}
+
+const update = () => {
+  const viewer = window.__viewer;
+  if (!viewer || !viewer.camera) return;
+
+  const pos = viewer.camera.position;
+  const rot = viewer.camera.rotation;
+
+  camInfo.innerHTML = 
+    `📍Pos: x=${pos.x.toFixed(2)}, y=${pos.y.toFixed(2)}, z=${pos.z.toFixed(2)}<br>` +
+    `🧭Rot: x=${(rot.x * 180 / Math.PI).toFixed(1)}°, y=${(rot.y * 180 / Math.PI).toFixed(1)}°, z=${(rot.z * 180 / Math.PI).toFixed(1)}°`;
+
+  // カメラ情報を送信
+  sendCameraInfo(viewer.camera);
+  
+  // MPRスライス画像を更新
+  updateMPRSlice();
+};
+
+// WebSocket接続を開始
+connectWebSocket();
+
+// 定期的な更新
+setInterval(update, 100);
+</script> 
