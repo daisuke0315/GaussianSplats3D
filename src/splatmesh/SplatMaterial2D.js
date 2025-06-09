@@ -50,7 +50,7 @@ export class SplatMaterial2D {
             alphaTest: 1.0,
             blending: THREE.NormalBlending,
             depthTest: true,
-            depthWrite: false,
+            depthWrite:false,
             side: THREE.DoubleSide
         });
 

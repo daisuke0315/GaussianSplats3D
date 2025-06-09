@@ -41,6 +41,17 @@ const CONSECUTIVE_RENDERED_FRAMES_FOR_FPS_CALCULATION = 60;
 export class Viewer {
 
     constructor(options = {}) {
+                // 🔴 Box を作る
+    const boxGeometry = new THREE.BoxGeometry(1, 1, 1);
+    const boxMaterial = new THREE.MeshBasicMaterial({
+      color: 0xff0000,
+      transparent: true,
+      opacity: 0.7,
+   });
+    this.__debugBox = new THREE.Mesh(boxGeometry, boxMaterial);
+    this.__debugBox.position.set(0, 0, -5); // Z方向に少し前に出す
+    this.threeScene.add(this.__debugBox);
+
 
         // The natural 'up' vector for viewing the scene (only has an effect when used with orbit controls and
         // when the viewer uses its own camera).
@@ -328,6 +339,30 @@ export class Viewer {
         this.infoPanel.setContainer(this.rootElement);
 
         this.initialized = true;
+
+        // 🔽 この直後に追加
+this.__cube = new THREE.Mesh(
+  new THREE.BoxGeometry(1, 1, 1),
+  new THREE.MeshBasicMaterial({
+    color: 0x00ffff,
+    transparent: true,
+    opacity: 0.7,
+    depthTest: false,
+    depthWrite: false
+  })
+);
+this.__cube.position.set(0, 0, 0);
+
+// 🔥 splatMesh描画後に使うオーバーレイ用シーン
+this.__overlayScene = new THREE.Scene();
+this.__overlayScene.add(this.__cube);
+
+console.log('[debug] overlayScene:', this.__overlayScene);
+console.log('[debug] cube:', this.__cube);
+
+
+
+
     }
 
     setupCamera() {
@@ -1597,30 +1632,49 @@ export class Viewer {
     }();
 
     render = function() {
+  return function() {
+    if (!this.initialized || !this.splatRenderReady || this.isDisposingOrDisposed()) return;
 
-        return function() {
-            if (!this.initialized || !this.splatRenderReady || this.isDisposingOrDisposed()) return;
+    const hasRenderables = (threeScene) => {
+      for (let child of threeScene.children) {
+        if (child.visible) return true;
+      }
+      return false;
+    };
 
-            const hasRenderables = (threeScene) => {
-                for (let child of threeScene.children) {
-                    if (child.visible) return true;
-                }
-                return false;
-            };
+    const savedAutoClear = this.renderer.autoClear;
+    if (hasRenderables(this.threeScene)) {
+      this.renderer.render(this.threeScene, this.camera);
+      this.renderer.autoClear = false;
+    }
 
-            const savedAuoClear = this.renderer.autoClear;
-            if (hasRenderables(this.threeScene)) {
-                this.renderer.render(this.threeScene, this.camera);
-                this.renderer.autoClear = false;
-            }
-            this.renderer.render(this.splatMesh, this.camera);
-            this.renderer.autoClear = false;
-            if (this.sceneHelper.getFocusMarkerOpacity() > 0.0) this.renderer.render(this.sceneHelper.focusMarker, this.camera);
-            if (this.showControlPlane) this.renderer.render(this.sceneHelper.controlPlane, this.camera);
-            this.renderer.autoClear = savedAuoClear;
-        };
+    this.renderer.render(this.splatMesh, this.camera); // ← GS描画
+    this.renderer.clearDepth();  
+    
+    
+// 🔥 オーバーレイCubeをGSの手前に描画！
+if (this.__overlayScene) {
+  this.renderer.render(this.__overlayScene, this.camera);
+}
 
-    }();
+console.log('[debug] rendering overlayScene');
+
+
+
+
+
+    if (this.sceneHelper.getFocusMarkerOpacity() > 0.0) {
+      this.renderer.render(this.sceneHelper.focusMarker, this.camera);
+    }
+
+    if (this.showControlPlane) {
+      this.renderer.render(this.sceneHelper.controlPlane, this.camera);
+    }
+
+    this.renderer.autoClear = savedAutoClear;
+  };
+};
+
 
     update(renderer, camera) {
         if (this.dropInMode) this.updateForDropInMode(renderer, camera);

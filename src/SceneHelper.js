@@ -344,7 +344,7 @@ export class SceneHelper {
             fragmentShader: fragmentShaderSource,
             transparent: false,
             depthTest: true,
-            depthWrite: true,
+            depthWrite: false,
             side: THREE.FrontSide
         });
         material.extensions.fragDepth = true;
