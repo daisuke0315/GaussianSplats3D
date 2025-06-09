@@ -39,8 +39,11 @@ const CONSECUTIVE_RENDERED_FRAMES_FOR_FPS_CALCULATION = 60;
  * that performs the sort for its splats.
  */
 export class Viewer {
+    
 
     constructor(options = {}) {
+
+           console.log('[debug] ✅ Viewer constructor called');
                 // 🔴 Box を作る
     const boxGeometry = new THREE.BoxGeometry(1, 1, 1);
     const boxMaterial = new THREE.MeshBasicMaterial({
@@ -307,6 +310,7 @@ export class Viewer {
     }
 
     init() {
+        console.log("aaa");
 
         if (this.initialized) return;
 
@@ -1594,6 +1598,8 @@ console.log('[debug] cube:', this.__cube);
     }
 
     shouldRender = function() {
+
+         console.log('[debug] render() called');
 
         let renderCount = 0;
         const lastCameraPosition = new THREE.Vector3();
